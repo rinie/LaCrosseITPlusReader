@@ -17,14 +17,14 @@ public:
   RFMxx(byte mosi, byte miso, byte sck, byte ss, byte irq);
 
   bool PayloadIsReady();
-  void GetPayload(byte *data);
+  byte GetPayload(byte *data);
   void InitialzeLaCrosse();
   void SendArray(byte *data, byte length);
   void SetDataRate(unsigned long dataRate);
   unsigned long GetDataRate();
   void SetFrequency(unsigned long kHz);
   unsigned long GetFrequency();
-  void EnableReceiver(bool enable);
+  void EnableReceiver(bool enable, bool fClearFifo = true);
   void EnableTransmitter(bool enable);
   static byte CalculateCRC(byte data[], int len);
   void PowerDown();
@@ -33,7 +33,7 @@ public:
   RadioType GetRadioType();
   String GetRadioName();
   void Receive();
-
+  bool ReceiveGetPayloadWhenReady(byte *data, byte &length, byte &packetCount);
 private:
   RadioType m_radioType;
   byte m_mosi, m_miso, m_sck, m_ss, m_irq;
@@ -43,6 +43,7 @@ private:
   byte m_payloadPointer;
   unsigned long m_lastReceiveTime;
   bool m_payloadReady;
+  byte m_payload_crc;
   byte m_payload[PAYLOADSIZE];
   byte spi8(byte);
   unsigned short spi16(unsigned short value);
@@ -1093,4 +1094,5 @@ private:
 #define RF_DAGC_IMPROVED_LOWBETA0   0x30  // Recommended default
 
 #endif
+
 

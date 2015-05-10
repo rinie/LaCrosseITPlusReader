@@ -269,3 +269,4 @@ bool LaCrosse::TryHandleData(byte *data) {
   return fhemString.length() > 0;
 
 }
+

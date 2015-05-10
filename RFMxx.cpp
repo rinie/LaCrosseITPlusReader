@@ -1,4 +1,7 @@
 #include "RFMxx.h"
+#include "SensorBase.h"
+#include "JeeLink.h"
+extern JeeLink jeeLink;
 
 void RFMxx::Receive() {
   if (IsRF69) {
@@ -21,32 +24,97 @@ void RFMxx::Receive() {
     digitalWrite(m_ss, HIGH);
 
     if (hasData) {
-      m_payload[m_payloadPointer++] = GetByteFromFifo();
+        byte bt = GetByteFromFifo();
+      m_payload[m_payloadPointer++] = bt;
       m_lastReceiveTime = millis();
+      m_payload_crc = SensorBase::UpdateCRC(m_payload_crc, bt);
     }
 
-    if ((m_payloadPointer > 0 && millis() > m_lastReceiveTime + 50) || m_payloadPointer >= 32) {
+    if ((m_payloadPointer >= 8 && m_payload_crc == 0) || (m_payloadPointer > 0 && millis() > m_lastReceiveTime + 50) || m_payloadPointer >= 32) {
       m_payloadReady = true;
     }
   }
 }
 
-void RFMxx::GetPayload(byte *data) {
+byte RFMxx::GetPayload(byte *data) {
+	byte payloadPointer = m_payloadPointer;
   m_payloadReady = false;
   m_payloadPointer = 0;
+  m_payload_crc = 0;
   for (int i = 0; i < PAYLOADSIZE; i++) {
     data[i] = m_payload[i];
   }
+  return payloadPointer;
 }
 
+bool RFMxx::ReceiveGetPayloadWhenReady(byte *data, byte &length, byte &packetCount) {
+      byte payload[PAYLOADSIZE];
+      byte payLoadSize;
+//      byte packetCount;
+	bool fAgain = false;
+	bool fEnableReceiver = true;
+	unsigned long lastReceiveTime = 0;
+	byte count = 0;
+	byte len;
+	bool fPayloadIsReady = false;
+
+	do {
+		Receive();
+
+		if (PayloadIsReady()) {
+			payLoadSize = GetPayload(payload);
+			if (!fPayloadIsReady) {
+				  for (int i = 0; i < payLoadSize; i++) {
+					data[i] = payload[i];
+				  }
+				length = payLoadSize;
+				len = payLoadSize;
+				count++;
+				fPayloadIsReady = true;
+				fAgain = (payLoadSize < 16);
+			}
+			else if (payLoadSize >= len) { // WH1080 sends 6 repeated packages
+				int i;
+				  for (i = 0; i < len; i++) {
+					if (data[i] != payload[i]) {
+						break;
+					}
+				  }
+				  if (i >= len) {
+					count++; // matching packet count
+					fAgain = true;
+				  }
+			}
+			else {
+				fAgain = false;
+			}
+			packetCount = count;
+
+			if (fAgain) {
+				lastReceiveTime = millis();
+				fEnableReceiver = true;
+				EnableReceiver(fEnableReceiver, false);
+			}
+	  }
+	  else {
+		  fAgain = fAgain && (fPayloadIsReady) && (count < 8) && (millis() < lastReceiveTime + 50);
+	  }
+	} while (fAgain);
+
+	if (fEnableReceiver && fPayloadIsReady) {
+		fEnableReceiver = false;
+		EnableReceiver(fEnableReceiver);
+	}
+	return (fPayloadIsReady);
+}
 
 void RFMxx::SetDataRate(unsigned long dataRate) {
   m_dataRate = dataRate;
 
   if (IsRF69) {
     word r = ((32000000UL + (m_dataRate / 2)) / m_dataRate);
-    WriteReg(0x03, r >> 8); 
-    WriteReg(0x04, r & 0xFF); 
+    WriteReg(0x03, r >> 8);
+    WriteReg(0x04, r & 0xFF);
   }
   else {
     byte bt;
@@ -77,15 +145,15 @@ void RFMxx::SetFrequency(unsigned long kHz) {
   }
 }
 
-void RFMxx::EnableReceiver(bool enable){
+void RFMxx::EnableReceiver(bool enable, bool fClearFifo){
   if (enable) {
     if (IsRF69) {
       WriteReg(REG_OPMODE, (ReadReg(REG_OPMODE) & 0xE3) | RF_OPMODE_RECEIVER);
     }
     else {
-      spi16(0x82C8); 
-      spi16(0xCA81); 
-      spi16(0xCA83); 
+      spi16(0x82C8);
+      spi16(0xCA81);
+      spi16(0xCA83);
     }
   }
   else {
@@ -96,7 +164,9 @@ void RFMxx::EnableReceiver(bool enable){
       spi16(0x8208);
     }
   }
-  ClearFifo();
+  if (fClearFifo) {
+  	ClearFifo();
+ }
 }
 
 void RFMxx::EnableTransmitter(bool enable){
@@ -180,15 +250,15 @@ void RFMxx::InitialzeLaCrosse() {
     spi16(0x8208);              // RX/TX off
     spi16(0x80E8);              // 80e8 CONFIGURATION EL,EF,868 band,12.5pF  (iT+ 915  80f8)
     spi16(0xC26a);              // DATA FILTER
-    spi16(0xCA12);              // FIFO AND RESET  8,SYNC,!ff,DR 
-    spi16(0xCEd4);              // SYNCHRON PATTERN  0x2dd4 
+    spi16(0xCA12);              // FIFO AND RESET  8,SYNC,!ff,DR
+    spi16(0xCEd4);              // SYNCHRON PATTERN  0x2dd4
     spi16(0xC481);              // AFC during VDI HIGH
-    spi16(0x94a0);              // RECEIVER CONTROL VDI Medium 134khz LNA max DRRSI 103 dbm  
-    spi16(0xCC77);              // 
-    spi16(0x9850);              // Deviation 90 kHz 
-    spi16(0xE000);              // 
-    spi16(0xC800);              // 
-    spi16(0xC040);              // 1.66MHz,2.2V 
+    spi16(0x94a0);              // RECEIVER CONTROL VDI Medium 134khz LNA max DRRSI 103 dbm
+    spi16(0xCC77);              //
+    spi16(0x9850);              // Deviation 90 kHz
+    spi16(0xE000);              //
+    spi16(0xC800);              //
+    spi16(0xC040);              // 1.66MHz,2.2V
   }
 
   SetFrequency(m_frequency);
@@ -313,7 +383,7 @@ RFMxx::RFMxx(byte mosi, byte miso, byte sck, byte ss, byte irq) {
   m_payloadPointer = 0;
   m_lastReceiveTime = 0;
   m_payloadReady = false;
-
+  m_payload_crc = 0;
 
   pinMode(m_mosi, OUTPUT);
   pinMode(m_miso, INPUT);
@@ -322,7 +392,7 @@ RFMxx::RFMxx(byte mosi, byte miso, byte sck, byte ss, byte irq) {
   pinMode(m_irq, INPUT);
 
   digitalWrite(m_ss, HIGH);
-  
+
   m_radioType = RFMxx::RFM12B;
   WriteReg(REG_PAYLOADLENGTH, 0xA);
   if (ReadReg(REG_PAYLOADLENGTH) == 0xA) {
@@ -373,7 +443,7 @@ if (IsRF69) {
     // Wait until transmission is finished
     unsigned long txStart = millis();
     while (!(ReadReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PACKETSENT) && millis() - txStart < 500);
-    
+
     EnableTransmitter(false);
   }
   else {
@@ -406,5 +476,6 @@ if (IsRF69) {
     Serial.println();
   }
 }
+
 
 

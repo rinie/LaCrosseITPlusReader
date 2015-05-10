@@ -12,7 +12,7 @@
 //  |  | |  |  |  | |  |  |  | |  |  |  | |  |  `---------- Voltage * 1V 
 //  |  | |  |  |  | |  |  |  | |  |  |  | |  |
 //  |  | |  |  |  | |  |  |  | |  |  |  | `----- Temperature T *  0.1  \
-//  |  | |  |  |  | |  |  |  | |  |  `---------- Temperature T *  1    |  +40 °C
+//  |  | |  |  |  | |  |  |  | |  |  `---------- Temperature T *  1    |  +40 Â°C
 //  |  | |  |  |  | |  |  |  | `---------------- Temperature T * 10    /
 //  |  | |  |  |  | |  |  |  | 
 //  |  | |  |  |  | |  |  `----- Level *   1  \
@@ -175,8 +175,8 @@ byte LevelSenderLib::CalculateCRC(byte data[]) {
 String LevelSenderLib::GetFhemDataString(struct Frame *frame) {
   // Format
   // 
-  // OK LS 1  0   5   100 4   191 60      =  38,0cm    21,5°C   6,0V
-  // OK LS 1  0   8   167 4   251 57      = 121,5cm    27,5°C   5,7V   
+  // OK LS 1  0   5   100 4   191 60      =  38,0cm    21,5Â°C   6,0V
+  // OK LS 1  0   8   167 4   251 57      = 121,5cm    27,5Â°C   5,7V   
   // OK LS ID X   XXX XXX XXX XXX XXX
   // |   | |  |    |   |   |   |   |
   // |   | |  |    |   |   |   |   `--- Voltage * 10
@@ -229,3 +229,4 @@ bool LevelSenderLib::TryHandleData(byte *data) {
 
   return fhemString.length() > 0;
 }
+

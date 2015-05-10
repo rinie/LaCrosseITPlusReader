@@ -67,3 +67,4 @@ bool WT440XH::CrcIsValid(byte *data) {
   return crc == 0;
 }
 
+

@@ -211,3 +211,4 @@ bool EMT7110::TryHandleData(byte *data) {
 
   return fhemString.length() > 0;
 }
+

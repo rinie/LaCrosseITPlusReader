@@ -67,3 +67,4 @@ void Transmitter::SetValues(float temperature, byte humidity) {
   m_temperature = temperature;
   m_humidity = humidity;
 }
+

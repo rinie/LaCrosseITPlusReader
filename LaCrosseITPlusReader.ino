@@ -4,7 +4,7 @@
 // info    : http://forum.jeelabs.net/node/110
 //           http://fredboboss.free.fr/tx29/tx29_sw.php
 //           http://www.f6fbb.org/domo/sensors/
-//           http://www.mikrocontroller.net/topic/67273 
+//           http://www.mikrocontroller.net/topic/67273
 //           benedikt.k org rinie,marf,joop 1 nov 2011, slightly modified by Rufik (r.markiewicz@gmail.com)
 // Changelog: 2012-02-11: initial release 1.0
 //            2014-03-14: I have this in SubVersion, so no need to do it here
@@ -26,7 +26,7 @@
 #include "Help.h"
 
 // --- Configuration ---------------------------------------------------------
-#define RECEIVER_ENABLED      1                     // Set to 0 if you don't want to receive 
+#define RECEIVER_ENABLED      1                     // Set to 0 if you don't want to receive
 #define ANALYZE_FRAMES        0                     // Set to 1 to display analyzed frame data instead of the normal data
 #define ENABLE_ACTIVITY_LED   1                     // set to 0 if the blue LED bothers
 #define USE_OLD_IDS           0                     // Set to 1 to use the old ID calcualtion
@@ -34,8 +34,8 @@
 bool    DEBUG               = 0;                    // set to 1 to see debug messages
 unsigned long DATA_RATE     = 17241ul;              // use one of the possible data rates
 uint16_t TOGGLE_DATA_RATE   = 0;                    // 0=no toggle, else interval in seconds
-unsigned long INITIAL_FREQ  = 868300;               // Initial frequency in kHz (5 kHz steps, 860480 ... 879515) 
-bool RELAY                  = 0;                    // If 1 all received packets will be retransmitted  
+unsigned long INITIAL_FREQ  = 868300;               // Initial frequency in kHz (5 kHz steps, 860480 ... 879515)
+bool RELAY                  = 0;                    // If 1 all received packets will be retransmitted
 
 
 // --- Variables --------------------------------------------------------------
@@ -59,7 +59,7 @@ static void HandleSerialPort(char c) {
   }
   else if ('a' <= c && c <= 'z') {
     switch (c) {
-    case 'd':     
+    case 'd':
       // DEBUG
       SetDebugMode(value);
       break;
@@ -67,20 +67,20 @@ static void HandleSerialPort(char c) {
       // Tests
       HandleCommandX(value);
       break;
-    case 'a': 
-      // Activity LED    
+    case 'a':
+      // Activity LED
       jeeLink.EnableLED(value);
       break;
-    case 'r':     
+    case 'r':
       // Data rate
       DATA_RATE = value ? 9579ul : 17241ul;
       rfm.SetDataRate(DATA_RATE);
       break;
-    case 't':     
+    case 't':
       // Toggle data rate
       TOGGLE_DATA_RATE = value;
       break;
-    case 'v':     
+    case 'v':
       // Version info
       HandleCommandV();
       break;
@@ -158,25 +158,25 @@ void HandleCommandI(byte *values, byte size){
     transmitter.Enable(false);
   }
 
-  
+
 }
 
 void HandleCommandC(byte *values, byte size){
-  // 2,1,9,44c    -> Temperatur  21,9�C and 44% humidity
-  // 129,4,5,77c  -> Temperatur -14,5�C and 77% humidity
+  // 2,1,9,44c    -> Temperatur  21,9ï¿½C and 44% humidity
+  // 129,4,5,77c  -> Temperatur -14,5ï¿½C and 77% humidity
   // To set a negative temperature set bit 7 in the first byte (add 128)
   if (size == 4){
     float temperature = (values[0] & 0b0111111) * 10 + values[1] + values[2] * 0.1;
     if (values[0] & 0b10000000) {
       temperature *= -1;
     }
-    
+
     transmitter.SetValues(temperature, values[3]);
   }
 }
 
 
-// This function is for testing 
+// This function is for testing
 void HandleCommandX(byte value) {
   LaCrosse::Frame frame;
   frame.ID = 20;
@@ -242,7 +242,7 @@ void loop(void) {
   // Handle the data rate
   // --------------------
   if (TOGGLE_DATA_RATE > 0) {
-    // After about 50 days millis() will overflow to zero 
+    // After about 50 days millis() will overflow to zero
     if (millis() < lastToggle) {
       lastToggle = 0;
     }
@@ -271,14 +271,21 @@ void loop(void) {
   // Handle the data reception
   // -------------------------
   if (RECEIVER_ENABLED) {
+#if 0
     rfm.Receive();
 
     if (rfm.PayloadIsReady()) {
       rfm.EnableReceiver(false);
 
       byte payload[PAYLOADSIZE];
-      rfm.GetPayload(payload);
-      
+      byte payLoadSize = rfm.GetPayload(payload);
+#else
+      byte payload[PAYLOADSIZE];
+      byte payLoadSize;
+      byte packetCount;
+      if (rfm.ReceiveGetPayloadWhenReady(payload, payLoadSize, packetCount)) {
+#endif
+
       if(ANALYZE_FRAMES) {
         LaCrosse::AnalyzeFrame(payload);
         LevelSenderLib::AnalyzeFrame(payload);
@@ -297,7 +304,7 @@ void loop(void) {
           }
           Serial.println();
         }
-        
+
         byte frameLength = 0;
 
         // Try LaCrosse like TX29DTH
@@ -324,7 +331,31 @@ void loop(void) {
         else if (TX38IT::TryHandleData(payload)) {
           frameLength = TX38IT::FRAME_LENGTH;
         }
-       
+        else {
+			Serial.print("Unknown package: ");
+			Serial.print(payLoadSize);
+            Serial.print("-");
+			Serial.print(packetCount);
+            Serial.print(": ");
+			Serial.print((payload[0] & 0xF0)>>4, HEX);
+			Serial.print(" ");
+			//Serial.print(" CRC ");
+			//Serial.print(SensorBase::CalculateCRC(payload, 10), HEX);
+			for (byte i = 2; i < payLoadSize; i++) { // test if crc with itself is 0
+				if (SensorBase::CalculateCRC(payload, i) == 0) {
+					Serial.print(" crclen ");
+					Serial.print(i);
+					Serial.print(":");
+				}
+			}
+
+          for (int i = 0; i < ((payLoadSize < 16) ? payLoadSize : 16); i++) {
+            Serial.print(payload[i], HEX);
+            Serial.print(" ");
+          }
+          Serial.println();
+		}
+
 
         if (RELAY && frameLength > 0) {
           delay(64);
@@ -338,7 +369,7 @@ void loop(void) {
       rfm.EnableReceiver(true);
     }
   }
- 
+
 }
 
 
@@ -355,7 +386,7 @@ void setup(void) {
 
   jeeLink.EnableLED(ENABLE_ACTIVITY_LED);
   lastToggle = millis();
-  
+
   rfm.InitialzeLaCrosse();
   rfm.SetFrequency(INITIAL_FREQ);
   rfm.SetDataRate(DATA_RATE);
@@ -370,6 +401,7 @@ void setup(void) {
   HandleCommandV();
 
 }
+
 
 
 

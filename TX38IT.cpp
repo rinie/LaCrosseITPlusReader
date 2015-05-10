@@ -257,3 +257,4 @@ bool TX38IT::TryHandleData(byte *data) {
   return fhemString.length() > 0;
 
 }
+

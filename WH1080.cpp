@@ -1,4 +1,5 @@
 #include "WH1080.h"
+#include <Time.h>
 /// FSK weather station receiver
 /// Receive packets echoes to serial.
 /// Updates DCF77 time.
@@ -9,68 +10,66 @@
 // 2013-03-03<info@sevenwatt.com> http://opensource.org/licenses/mit-license.php
 
 /*
-* Message Format:
-*
-* .- [0] -. .- [1] -. .- [2] -. .- [3] -. .- [4] -.
-* |       | |       | |       | |       | |       |
-* SSSS.DDDD DDN_.TTTT TTTT.TTTT WHHH.HHHH CCCC.CCCC
-* |  | |     ||  |  | |  | |  | ||      | |       |
-* |  | |     ||  |  | |  | |  | ||      | `--------- CRC
-* |  | |     ||  |  | |  | |  | |`-------- Humidity
-* |  | |     ||  |  | |  | |  | |
-* |  | |     ||  |  | |  | |  | `---- weak battery
-* |  | |     ||  |  | |  | |  |
-* |  | |     ||  |  | |  | `----- Temperature T * 0.1
-* |  | |     ||  |  | |  |
-* |  | |     ||  |  | `---------- Temperature T * 1
-* |  | |     ||  |  |
-* |  | |     ||  `--------------- Temperature T * 10
-* |  | |     | `--- new battery
-* |  | `---------- ID
-* `---- START = 9
-*
-*/
+ * Message Format: http://www.sevenwatt.com/main/wh1080-protocol-v2-fsk/
+ *
+ * Package definition:
+ * [
+ * preample 3 bytes 0xAA    synchron word    payload 10 bytes  postample 11bits zero
+ * 0xAA    0xAA    0xAA     0x2D    0xD4     nnnnn---nnnnnnnnn 0x00     0x0
+ * 101010101010101010101010 0010110111010100 101.............. 00000000 000
+ * ]
+ * repeated six times (identical packages) per transmission every 48 seconds
+ * There is no or hardly any spacing between the packages.
+ * Spacing: to be confirmed.
+ *
+ * Payload definition:
+ * Weather sensor reading Message Format:
+ * AAAABBBBBBBBCCCCCCCCCCCCDDDDDDDDEEEEEEEEFFFFFFFFGGGGHHHHHHHHHHHHIIIIJJJJKKKKKKKK
+ * 0xA4    0xF0    0x27    0x47    0x00    0x00    0x03    0xC6    0x0C    0xFE
+ * 10100100111100000010011101000111000000000000000000000011110001100000110011111110
+ *
+ * with:
+ * AAAA = 1010    Message type: 0xA: sensor readings
+ * BBBBBBBB       Station ID / rolling code: Changes with battery insertion.
+ * CCCCCCCCCCCC   Temperature*10 in celsius. Binary format MSB is sign
+ * DDDDDDDD       Humidity in %. Binary format 0-100. MSB (bit 7) unused.
+ * EEEEEEEE       Windspeed
+ * FFFFFFFF       Wind gust
+ * GGGG           Unknown
+ * HHHHHHHHHHHH   Rainfall cumulative. Binary format, max = 0x3FF,
+ * IIII           Status bits: MSB b3=low batt indicator.
+ * JJJJ           Wind direction
+ * KKKKKKKK       CRC8 - reverse Dallas One-wire CRC
+ *
+ * DCF Time Message Format:
+ * AAAABBBBBBBBCCCCDDEEEEEEFFFFFFFFGGGGGGGGHHHHHHHHIIIJJJJJKKKKKKKKLMMMMMMMNNNNNNNN
+ * Hours Minutes Seconds Year       MonthDay      ?      Checksum
+ * 0xB4    0xFA    0x59    0x06    0x42    0x13    0x43    0x02    0x45    0x74
+ *
+ * with:
+ * AAAA = 1011    Message type: 0xB: DCF77 time stamp
+ * BBBBBBBB       Station ID / rolling code: Changes with battery insertion.
+ * CCCC           Unknown
+ * DD             Unknown
+ * EEEEEE         Hours, BCD
+ * FFFFFFFF       Minutes, BCD
+ * GGGGGGGG       Seconds, BCD
+ * HHHHHHHH       Year, last two digits, BCD
+ * III            Unknown
+ * JJJJJ          Month number, BCD
+ * KKKKKKKK       Day in month, BCD
+ * L              Unknown status bit
+ * MMMMMMM        Unknown
+ * NNNNNNNN       CRC8 - reverse Dallas One-wire CRC
+ * The DCF code is transmitted five times with 48 second intervals between 3-6 minutes past a new hour. The sensor data transmission stops in the 59th minute. Then there are no transmissions for three minutes, apparently to be noise free to acquire the DCF77 signal. On similar OOK weather stations the DCF77 signal is only transmitted every two hours.
+ */
 
 byte WH1080::CalculateCRC(byte data[]) {
   return SensorBase::CalculateCRC(data, FRAME_LENGTH - 1);
 }
 
 
-void WH1080::EncodeFrame(struct Frame *frame, byte bytes[FRAME_LENGTH]) {
-  for (int i = 0; i < FRAME_LENGTH; i++) { bytes[i] = 0; }
-
-  // ID
-  bytes[0] = 9 << 4;
-  bytes[0] |= frame->ID >> 2;
-  bytes[1] = (frame->ID & 0b00000011) << 6;
-#if 0
-  // NewBatteryFlag
-  bytes[1] |= frame->NewBatteryFlag << 5;
-
-  // Bit12
-  bytes[1] |= frame->Bit12 << 4;
-#endif
-  // Temperature
-  float temp = frame->Temperature + 40.0;
-  bytes[1] |= (int)(temp / 10);
-  bytes[2] |= ((int)temp % 10) << 4;
-  bytes[2] |= (int)(fmod(temp, 1) * 10 + 0.5);
-
-  // Humidity
-  bytes[3] = frame->Humidity;
-
-#if 0
-  // WeakBatteryFlag
-  bytes[3] |= frame->WeakBatteryFlag << 7;
-#endif
-  // CRC
-  bytes[FRAME_LENGTH-1] = CalculateCRC(bytes);
-
-}
-
-
-void WH1080::DecodeFrame(byte *bytes, struct Frame *frame) {
-	bool isWS4000=true;
+void WH1080::DecodeFrame(byte *bytes, struct Frame *frame, bool isWS4000) {
 	byte *sbuf = bytes;
   frame->IsValid = true;
 
@@ -79,10 +78,9 @@ void WH1080::DecodeFrame(byte *bytes, struct Frame *frame) {
     frame->IsValid = false;
   }
 
-  // SSSS.DDDD DDN_.TTTT TTTT.TTTT WHHH.HHHH CCCC.CCCC
-
     static char *compass[] = {"N  ", "NNE", "NE ", "ENE", "E  ", "ESE", "SE ", "SSE", "S  ", "SSW", "SW ", "WSW", "W  ", "WNW", "NW ", "NNW"};
     uint8_t windbearing = 0;
+    byte status= 0;
     // station id
     uint8_t stationid = (sbuf[0] << 4) | (sbuf[1] >>4);
     // temperature
@@ -97,9 +95,11 @@ void WH1080::DecodeFrame(byte *bytes, struct Frame *frame) {
     double windspeed = sbuf[4] * 0.34;
     //wind gust
     double windgust = sbuf[5] * 0.34;
+    byte unknown = (sbuf[6] & 0xF0) >> 4;
     //rainfall
     double rain = (((sbuf[6] & 0x0F) << 8) | sbuf[7]) * 0.3;
     if (isWS4000) {
+      status = (sbuf[8] & 0xF0) >> 4;
       //wind bearing
       windbearing = sbuf[8] & 0x0F;
     }
@@ -118,8 +118,78 @@ void WH1080::DecodeFrame(byte *bytes, struct Frame *frame) {
   frame->Humidity = humidity;
   frame->WindSpeed = windspeed;
   frame->WindGust = windgust;
+  frame->Unknown = unknown;
   frame->Rain = rain;
+  frame->Status = status;
   frame->WindBearing = compass[windbearing];
+}
+
+void printDigits(int digits){
+  // utility function for digital clock display: leading 0
+  if(digits < 10)
+    Serial.print('0');
+  Serial.print(digits);
+}
+
+int BCD2bin(uint8_t BCD) {
+  return (10 * (BCD >> 4 & 0xF) + (BCD & 0xF));
+}
+
+void printDouble( double val, byte precision=1){
+  // formats val with number of decimal places determine by precision
+  // precision is a number from 0 to 6 indicating the desired decimial places
+ char ascii[10];
+ uint8_t ascii_len = sizeof(ascii);
+  snprintf(ascii,ascii_len,"%d",int(val));
+  if( precision > 0) {
+    strcat(ascii,".");
+    unsigned long frac;
+    unsigned long mult = 1;
+    byte padding = precision -1;
+    while(precision--)
+       mult *=10;
+
+    if(val >= 0)
+      frac = (val - int(val)) * mult;
+    else
+      frac = (int(val)- val ) * mult;
+    unsigned long frac1 = frac;
+    while( frac1 /= 10 )
+      padding--;
+    while(  padding--)
+      strcat(ascii,"0");
+    char str[7];
+    snprintf(str,sizeof(str),"%d",frac);
+    strcat(ascii,str);
+  }
+  Serial.print(ascii);
+}
+
+void timestamp(bool fLong=false)
+{
+	if (fLong) {
+	  Serial.print(year());
+	  Serial.print("-");
+	  printDigits(month());
+	  Serial.print("-");
+	  printDigits(day());
+	  Serial.print(" ");
+  }
+  printDigits(hour());
+  Serial.print(":");
+  printDigits(minute());
+  Serial.print(":");
+  printDigits(second());
+  Serial.print(" ");
+}
+
+void update_time(uint8_t* tbuf) {
+  static unsigned long lastMillis;
+  SensorBase::DisplayFrame(lastMillis, "WH1080Time", true, tbuf, WH1080::FRAME_LENGTH);
+  Serial.print(' ');
+  setTime(BCD2bin(tbuf[2] & 0x3F),BCD2bin(tbuf[3]),BCD2bin(tbuf[4]),BCD2bin(tbuf[7]),BCD2bin(tbuf[6] & 0x1F),BCD2bin(tbuf[5]));
+  timestamp(true);
+  Serial.println();
 }
 
 
@@ -208,36 +278,29 @@ bool WH1080::DisplayFrame(byte *data,  byte packetCount, struct Frame *frame, bo
       // Sensor ID
       Serial.print(" ID:");
       Serial.print(frame->ID, HEX);
-#if 0
-      // New battery flag
-      Serial.print(" NewBatt:");
-      Serial.print(frame->NewBatteryFlag, DEC);
 
-      // Bit 12
-      Serial.print(" Bit12:");
-      Serial.print(frame->Bit12, DEC);
-#endif
       // Temperature
       Serial.print(" Temp:");
-      Serial.print(frame->Temperature);
+      printDouble(frame->Temperature);
 
-#if 0
-      // Weak battery flag
-      Serial.print(" WeakBatt:");
-      Serial.print(frame->WeakBatteryFlag, DEC);
-#endif
       // Humidity
       Serial.print(" Hum:");
       Serial.print(frame->Humidity, DEC);
 
-      Serial.print(" Rain:");
-      Serial.print(frame->Rain, DEC);
-
       Serial.print(" WindSpeed:");
-      Serial.print(frame->WindSpeed, DEC);
+      printDouble(frame->WindSpeed);
 
       Serial.print(" WindGust:");
-      Serial.print(frame->WindGust, DEC);
+      printDouble(frame->WindGust);
+
+      Serial.print(" Unknown:");
+      Serial.print(frame->Unknown, HEX);
+
+      Serial.print(" Rain:");
+      printDouble(frame->Rain);
+
+      Serial.print(" Status:");
+      Serial.print(frame->Status, HEX);
 
       Serial.print(" WindBearing:");
       Serial.print(frame->WindBearing);
@@ -260,10 +323,34 @@ void WH1080::AnalyzeFrame(byte *data, byte packetCount, bool fOnlyIfValid) {
 }
 
 bool WH1080::TryHandleData(byte *data, byte packetCount, bool fFhemDisplay) {
+  bool fWs4000;
+  bool fTimePacket;
+  byte startNibble = (data[0] & 0xF0)>>4;
 
-  if ((data[0] & 0xF0) >> 4 == 0x0A) {
+	switch(startNibble) {
+	case 0x5: // WS3000 weather
+		fWs4000 = false;
+		fTimePacket = false;
+		break;
+	case 0x6: // WS3000 time
+		fWs4000 = false;
+		fTimePacket = true;
+		break;
+	case 0xA: //WS4000 WH1080 weather
+		fWs4000 = true;
+		fTimePacket = false;
+		break;
+	case 0xB: //WS4000 WH1080 time
+		fWs4000 = true;
+		fTimePacket = true;
+		break;
+	default:
+		return false;
+	}
+
+  if (!fTimePacket) {
     struct Frame frame;
-    DecodeFrame(data, &frame);
+    DecodeFrame(data, &frame, fWs4000);
     if (frame.IsValid) {
 	  if (fFhemDisplay) {
           String fhemString = "";
@@ -277,6 +364,10 @@ bool WH1080::TryHandleData(byte *data, byte packetCount, bool fFhemDisplay) {
 		     return DisplayFrame(data, packetCount, &frame);
 	     }
     }
+  }
+  else if (CalculateCRC(data) == data[9]) {
+	  update_time(data);
+	  return true;
   }
   return false;
 }

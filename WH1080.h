@@ -16,14 +16,13 @@ public:
   struct Frame {
     byte  Header;
     byte  ID;
-//    bool  NewBatteryFlag;
-//    bool  Bit12;
-    float Temperature;
-//    bool  WeakBatteryFlag;
+    double Temperature;
     byte  Humidity;
-    float WindSpeed;
-    float WindGust;
-    float Rain;
+    double WindSpeed;
+    double WindGust;
+    byte  Unknown;
+    double Rain;
+    byte  Status;
     char *WindBearing;
     byte  CRC;
     bool  IsValid;
@@ -31,8 +30,7 @@ public:
 
   static const byte FRAME_LENGTH = LEN_WS4000;
   static byte CalculateCRC(byte data[]);
-  static void EncodeFrame(struct WH1080::Frame *frame, byte bytes[FRAME_LENGTH]);
-  static void DecodeFrame(byte *bytes, struct WH1080::Frame *frame);
+  static void DecodeFrame(byte *bytes, struct WH1080::Frame *frame, bool isWS4000=true);
   static bool DisplayFrame(byte *data, byte packetCount, struct WH1080::Frame *frame, bool fOnlyIfValid = true);
   static void AnalyzeFrame(byte *data, byte packetCount, bool fOnlyIfValid = false);
   static bool TryHandleData(byte *data, byte packetCount, bool fFhemDisplay = true);

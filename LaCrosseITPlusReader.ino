@@ -22,6 +22,7 @@
 #include "WT440XH.h"
 #include "TX38IT.h"
 #include "WH1080.h"
+#include <Time.h>
 #include "JeeLink.h"
 #include "Transmitter.h"
 #include "Help.h"
@@ -288,14 +289,21 @@ void loop(void) {
       byte packetCount;
       if (rfm.ReceiveGetPayloadWhenReady(payload, payLoadSize, packetCount)) {
 #endif
-
+		byte startNibble = (payload[0] & 0xF0)>>4;
       if(ANALYZE_FRAMES) {
         LaCrosse::AnalyzeFrame(payload, fOnlyIfValid);
         LevelSenderLib::AnalyzeFrame(payload, fOnlyIfValid);
         EMT7110::AnalyzeFrame(payload, fOnlyIfValid);
         TX38IT::AnalyzeFrame(payload, fOnlyIfValid);
-        if ((((payload[0] & 0xF0)>>4) == 0x0A) && (packetCount > 1)) {
-        	WH1080::AnalyzeFrame(payload, packetCount, fOnlyIfValid);
+        switch(startNibble) {
+        case 0x5: // WS3000 weather
+        case 0x6: // WS3000 time
+        case 0xA: //WS4000 WH1080 weather
+        case 0xB: //WS4000 WH1080 time
+			if (packetCount > 1) {
+				WH1080::AnalyzeFrame(payload, packetCount, fOnlyIfValid);
+			}
+			break;
 		}
         Serial.println();
       }
@@ -337,19 +345,29 @@ void loop(void) {
         else if (TX38IT::TryHandleData(payload, fFhemDisplay)) {
           frameLength = TX38IT::FRAME_LENGTH;
         }
-        else if ((((payload[0] & 0xF0)>>4) == 0x0A) && (packetCount > 1) && (WH1080::TryHandleData(payload, packetCount, fFhemDisplay))) {
-          frameLength = WH1080::FRAME_LENGTH;
+        else if (packetCount > 1) {
+			switch(startNibble) {
+			case 0x5: // WS3000 weather
+			case 0x6: // WS3000 time
+			case 0xA: //WS4000 WH1080 weather
+			case 0xB: //WS4000 WH1080 time
+				if (WH1080::TryHandleData(payload, packetCount, fFhemDisplay)) {
+					frameLength = WH1080::FRAME_LENGTH;
+				}
+				break;
+			}
+			//frameLength = 0;
 		}
-        else {
-			Serial.print("Unknown package: ");
+		if (frameLength == 0) {
+			// MilliSeconds and the raw data bytes
+			static unsigned long lastMillis;
+			SensorBase::DisplayFrame(lastMillis, "Unknown", false, payload, (payLoadSize > 16) ? 16 : payLoadSize);
+
+			Serial.print(" Size:");
 			Serial.print(payLoadSize);
-            Serial.print("-");
+            Serial.print(" #:");
 			Serial.print(packetCount);
-            Serial.print(": ");
-			Serial.print((payload[0] & 0xF0)>>4, HEX);
-			Serial.print(" ");
-			//Serial.print(" CRC ");
-			//Serial.print(SensorBase::CalculateCRC(payload, 10), HEX);
+            //Serial.print(": ");
 			for (byte i = 8; i < payLoadSize; i++) { // test if crc with itself is 0
 				if (SensorBase::CalculateCRC(payload, i) == 0) {
 					Serial.print(" crclen ");
@@ -358,10 +376,6 @@ void loop(void) {
 				}
 			}
 
-          for (int i = 0; i < ((payLoadSize < 16) ? payLoadSize : 16); i++) {
-            Serial.print(payload[i], HEX);
-            Serial.print(" ");
-          }
           Serial.println();
 		}
 

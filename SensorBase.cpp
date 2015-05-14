@@ -27,4 +27,31 @@ void SensorBase::SetDebugMode(boolean mode) {
   m_debug = mode;
 }
 
+void SensorBase::DisplayFrame(unsigned long &lastMillis, char *device, bool fIsValid, byte *data, byte frameLength) {
+    unsigned long now = millis();
+    char div[16];
+    if (lastMillis == 0) {
+		lastMillis = now;
+	}
+    sprintf(div, "%06ld ", (unsigned long)(now - lastMillis));
+    Serial.print(div);
+    lastMillis = now;
+	// Show the raw data bytes
+	Serial.print(device);
+	Serial.print(" [");
+	for (int i = 0; i < frameLength; i++) {
+	  Serial.print(data[i], HEX);
+	  Serial.print(" ");
+	}
+	Serial.print("]");
+
+	// Check CRC
+	if (!fIsValid) {
+	  Serial.print(" CRC:WRONG");
+	}
+	else {
+	  Serial.print(" CRC:OK");
+    }
+}
+
 

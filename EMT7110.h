@@ -26,8 +26,9 @@ public:
   static bool CrcIsValid(byte *data);
   static const byte FRAME_LENGTH = 12;
   static void DecodeFrame(byte *data, struct EMT7110::Frame *frame);
-  static void AnalyzeFrame(byte *data);
-  static bool TryHandleData(byte *data);
+  static void AnalyzeFrame(byte *data, bool fOnlyIfValid = false);
+  static bool DisplayFrame(byte *data, struct EMT7110::Frame &frame, bool fOnlyIfValid = true);
+  static bool TryHandleData(byte *data, bool fFhemDisplay = true);
   static String GetFhemDataString(struct EMT7110::Frame *frame);
 
 

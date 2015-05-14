@@ -22,10 +22,11 @@ public:
   static const byte FRAME_LENGTH = 5;
   static bool USE_OLD_ID_CALCULATION;
   static byte CalculateCRC(byte data[]);
-  static void EncodeFrame(struct LaCrosse::Frame *frame, byte bytes[5]);
+  static void EncodeFrame(struct LaCrosse::Frame *frame, byte bytes[FRAME_LENGTH]);
   static void DecodeFrame(byte *bytes, struct LaCrosse::Frame *frame);
-  static void AnalyzeFrame(byte *data);
-  static bool TryHandleData(byte *data);
+  static void AnalyzeFrame(byte *data, bool fOnlyIfValid = false);
+  static bool DisplayFrame(byte *data, struct Frame &frame, bool fOnlyIfValid = true);
+  static bool TryHandleData(byte *data, bool fFhemDisplay = true);
   static String GetFhemDataString(struct LaCrosse::Frame *frame);
 
 };

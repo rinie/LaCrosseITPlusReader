@@ -10,9 +10,9 @@ class WT440XH : public LaCrosse {
 public:
   static const byte FRAME_LENGTH = 6;
   static void DecodeFrame(byte *bytes, struct LaCrosse::Frame *frame);
-  static bool TryHandleData(byte *data);
+  static bool TryHandleData(byte *data, bool fFhemDisplay = true);
   static bool CrcIsValid(byte *data);
-  
+
 };
 
 

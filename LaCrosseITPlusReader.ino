@@ -21,6 +21,7 @@
 #include "EMT7110.h"
 #include "WT440XH.h"
 #include "TX38IT.h"
+#include "WH1080.h"
 #include "JeeLink.h"
 #include "Transmitter.h"
 #include "Help.h"
@@ -28,6 +29,8 @@
 // --- Configuration ---------------------------------------------------------
 #define RECEIVER_ENABLED      1                     // Set to 0 if you don't want to receive
 #define ANALYZE_FRAMES        0                     // Set to 1 to display analyzed frame data instead of the normal data
+bool fOnlyIfValid           = true;
+bool fFhemDisplay           = false;                // set to false for text display
 #define ENABLE_ACTIVITY_LED   1                     // set to 0 if the blue LED bothers
 #define USE_OLD_IDS           0                     // Set to 1 to use the old ID calcualtion
 // The following settings can also be set from FHEM
@@ -287,10 +290,13 @@ void loop(void) {
 #endif
 
       if(ANALYZE_FRAMES) {
-        LaCrosse::AnalyzeFrame(payload);
-        LevelSenderLib::AnalyzeFrame(payload);
-        EMT7110::AnalyzeFrame(payload);
-        TX38IT::AnalyzeFrame(payload);
+        LaCrosse::AnalyzeFrame(payload, fOnlyIfValid);
+        LevelSenderLib::AnalyzeFrame(payload, fOnlyIfValid);
+        EMT7110::AnalyzeFrame(payload, fOnlyIfValid);
+        TX38IT::AnalyzeFrame(payload, fOnlyIfValid);
+        if ((((payload[0] & 0xF0)>>4) == 0x0A) && (packetCount > 1)) {
+        	WH1080::AnalyzeFrame(payload, packetCount, fOnlyIfValid);
+		}
         Serial.println();
       }
       else {
@@ -308,29 +314,32 @@ void loop(void) {
         byte frameLength = 0;
 
         // Try LaCrosse like TX29DTH
-        if (LaCrosse::TryHandleData(payload)) {
+        if (LaCrosse::TryHandleData(payload, fFhemDisplay)) {
           frameLength = LaCrosse::FRAME_LENGTH;
         }
 
         // Try LevelSender
-        else if (LevelSenderLib::TryHandleData(payload)) {
+        else if (LevelSenderLib::TryHandleData(payload, fFhemDisplay)) {
           frameLength = LevelSenderLib::FRAME_LENGTH;
         }
 
         // Try EMT7110
-        else if (EMT7110::TryHandleData(payload)) {
+        else if (EMT7110::TryHandleData(payload, fFhemDisplay)) {
           frameLength = EMT7110::FRAME_LENGTH;
         }
 
         // Try WT440XH
-        else if (WT440XH::TryHandleData(payload)) {
+        else if (WT440XH::TryHandleData(payload, fFhemDisplay)) {
           frameLength = WT440XH::FRAME_LENGTH;
         }
 
         // Try TX38IT
-        else if (TX38IT::TryHandleData(payload)) {
+        else if (TX38IT::TryHandleData(payload, fFhemDisplay)) {
           frameLength = TX38IT::FRAME_LENGTH;
         }
+        else if ((((payload[0] & 0xF0)>>4) == 0x0A) && (packetCount > 1) && (WH1080::TryHandleData(payload, packetCount, fFhemDisplay))) {
+          frameLength = WH1080::FRAME_LENGTH;
+		}
         else {
 			Serial.print("Unknown package: ");
 			Serial.print(payLoadSize);
@@ -341,7 +350,7 @@ void loop(void) {
 			Serial.print(" ");
 			//Serial.print(" CRC ");
 			//Serial.print(SensorBase::CalculateCRC(payload, 10), HEX);
-			for (byte i = 2; i < payLoadSize; i++) { // test if crc with itself is 0
+			for (byte i = 8; i < payLoadSize; i++) { // test if crc with itself is 0
 				if (SensorBase::CalculateCRC(payload, i) == 0) {
 					Serial.print(" crclen ");
 					Serial.print(i);

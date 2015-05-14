@@ -15,7 +15,7 @@
 // Byte  9 Bit 6      ???
 // Byte  9 Bit 7      ???
 // Byte  9 Bit 0..5   Accumulated Power (0.01 kWh steps)
-// Byte 10            Accumulated Power (0.01 kWh steps) 
+// Byte 10            Accumulated Power (0.01 kWh steps)
 // Byte 11 	          CRC sum on all 12 bytes == 0
 
 void EMT7110::DecodeFrame(byte *data, struct Frame *frame) {
@@ -48,10 +48,10 @@ void EMT7110::DecodeFrame(byte *data, struct Frame *frame) {
 
 }
 
-
-void EMT7110::AnalyzeFrame(byte *data) {
-  struct Frame frame;
-  DecodeFrame(data, &frame);
+bool EMT7110::DisplayFrame(byte *data, struct EMT7110::Frame &frame, bool fOnlyIfValid) {
+  if (fOnlyIfValid && !frame.IsValid) {
+	  return frame.IsValid;
+  }
 
   // MilliSeconds
   static unsigned long lastMillis;
@@ -113,11 +113,16 @@ void EMT7110::AnalyzeFrame(byte *data) {
   // CRC
   Serial.print(" CRC:");
   Serial.print(frame.CRC);
- 
-  Serial.println();
 
+  Serial.println();
+  return frame.IsValid;
 }
 
+void EMT7110::AnalyzeFrame(byte *data, bool fOnlyIfValid) {
+  struct Frame frame;
+  DecodeFrame(data, &frame);
+  DisplayFrame(data, frame, fOnlyIfValid);
+}
 
 bool EMT7110::CrcIsValid(byte data[]) {
   byte crc = 0;
@@ -131,7 +136,7 @@ bool EMT7110::CrcIsValid(byte data[]) {
 
 String EMT7110::GetFhemDataString(struct Frame *frame) {
   // Format
-  // 
+  //
   // OK  EMT7110  84 81  8  237 0  13  0  2   1  6  1  -> ID 5451   228,5V   13mA   2W   2,62kWh
   // OK  EMT7110  84 162 8  207 0  76  0  7   0  0  1
   // OK  EMT7110  ID ID  VV VV  AA AA  WW WW  KW KW Flags
@@ -187,28 +192,30 @@ String EMT7110::GetFhemDataString(struct Frame *frame) {
   flags += frame->ConsumersConnected * 1;
   flags += frame->PairingFlag * 2;
   result += flags;
-  
+
 
   return result;
 }
 
 
-bool EMT7110::TryHandleData(byte *data) {
-  String fhemString = "";
-
+bool EMT7110::TryHandleData(byte *data, bool fFhemDisplay) {
   if (data[0] == 0x25 && (data[1] == 0x6A || data[1] == 0x2A || data[1] == 0x40)) {
     struct Frame frame;
     DecodeFrame(data, &frame);
     if (frame.IsValid) {
-      fhemString = GetFhemDataString(&frame);
+	  if (fFhemDisplay) {
+          String fhemString = "";
+          fhemString = GetFhemDataString(&frame);
+          if (fhemString.length() > 0) {
+            Serial.println(fhemString);
+          }
+          return fhemString.length() > 0;
+  	     }
+  	     else {
+		     return DisplayFrame(data, frame);
+	     }
     }
-
   }
-
-  if (fhemString.length() > 0) {
-    Serial.println(fhemString);
-  }
-
-  return fhemString.length() > 0;
+  return false;
 }
 

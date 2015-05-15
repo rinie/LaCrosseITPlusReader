@@ -22,6 +22,7 @@
 #include "WT440XH.h"
 #include "TX38IT.h"
 #include "WH1080.h"
+#include "WS1600.h"
 #include <Time.h>
 #include "JeeLink.h"
 #include "Transmitter.h"
@@ -299,6 +300,10 @@ void loop(void) {
         case 0x5: // WS3000 weather
         case 0x6: // WS3000 time
         case 0xA: //WS4000 WH1080 weather
+			if (packetCount <= 1) {
+				WS1600::AnalyzeFrame(payload, fOnlyIfValid);
+				break;
+			}
         case 0xB: //WS4000 WH1080 time
 			if (packetCount > 1) {
 				WH1080::AnalyzeFrame(payload, packetCount, fOnlyIfValid);
@@ -351,13 +356,30 @@ void loop(void) {
 			case 0x6: // WS3000 time
 			case 0xA: //WS4000 WH1080 weather
 			case 0xB: //WS4000 WH1080 time
-				if (WH1080::TryHandleData(payload, packetCount, fFhemDisplay)) {
-					frameLength = WH1080::FRAME_LENGTH;
-				}
+				frameLength = WH1080::TryHandleData(payload, packetCount, fFhemDisplay);
 				break;
 			}
 			//frameLength = 0;
 		}
+		else if (startNibble = 0xA) { // try ws1600
+#if 0
+				static unsigned long lastMillis;
+				byte datasets = payload[1] & 0x0F; // 2bytes, 4 nibbles
+				if (datasets <= 5) { // odd, blank lower 0 of last byte
+					byte pktlen = datasets * 2 + 2 + 1;
+					if (SensorBase::CalculateCRC(payload, pktlen) == 0) {
+						payLoadSize = pktlen;
+					}
+					SensorBase::DisplayFrame(lastMillis, "ws1600", payLoadSize == pktlen, payload, (payLoadSize > 16) ? 16 : payLoadSize);
+				}
+	            Serial.println();
+#endif
+				frameLength = WS1600::TryHandleData(payload, fFhemDisplay);
+	            //Serial.print(" frameLength");
+	            //Serial.print(frameLength);
+	            //Serial.println();
+		}
+
 		if (frameLength == 0) {
 			// MilliSeconds and the raw data bytes
 			static unsigned long lastMillis;

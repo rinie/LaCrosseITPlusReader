@@ -122,7 +122,8 @@ void RFMxx::SetDataRate(unsigned long dataRate) {
       bt = 0x13;
     }
     else if (m_dataRate == 9579) {
-      bt = 0x23;
+      //bt = 0x23;
+      bt = 0x28; // rinie see http://www.g-romahn.de/ws1600, https://github.com/rinie/weatherstationFSK/blob/master/weatherstationFSK.ino
     }
     else {
       bt = (byte)(344828UL / m_dataRate) - 1;

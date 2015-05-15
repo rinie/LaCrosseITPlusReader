@@ -26,17 +26,22 @@ public:
     char *WindBearing;
     byte  CRC;
     bool  IsValid;
+    byte frameLength;
   };
 
   static const byte FRAME_LENGTH = LEN_WS4000;
-  static byte CalculateCRC(byte data[]);
-  static void DecodeFrame(byte *bytes, struct WH1080::Frame *frame, bool isWS4000=true);
-  static bool DisplayFrame(byte *data, byte packetCount, struct WH1080::Frame *frame, bool fOnlyIfValid = true);
+  static byte CalculateCRC(byte data[], byte frameLength=FRAME_LENGTH);
+  static byte DecodeFrame(byte *bytes, struct WH1080::Frame *frame);
+  static byte DisplayFrame(byte *data, byte packetCount, struct WH1080::Frame *frame, bool fOnlyIfValid = true);
   static void AnalyzeFrame(byte *data, byte packetCount, bool fOnlyIfValid = false);
-  static bool TryHandleData(byte *data, byte packetCount, bool fFhemDisplay = true);
+  static byte TryHandleData(byte *data, byte packetCount, bool fFhemDisplay = true);
   static String GetFhemDataString(struct WH1080::Frame *frame);
 
 };
+
+void printDigits(int digits);
+int BCD2bin(uint8_t BCD);
+void printDouble( double val, byte precision=1);
 
 
 #endif

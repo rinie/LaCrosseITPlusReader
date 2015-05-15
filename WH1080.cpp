@@ -64,20 +64,27 @@
  * The DCF code is transmitted five times with 48 second intervals between 3-6 minutes past a new hour. The sensor data transmission stops in the 59th minute. Then there are no transmissions for three minutes, apparently to be noise free to acquire the DCF77 signal. On similar OOK weather stations the DCF77 signal is only transmitted every two hours.
  */
 
-byte WH1080::CalculateCRC(byte data[]) {
-  return SensorBase::CalculateCRC(data, FRAME_LENGTH - 1);
+byte WH1080::CalculateCRC(byte data[], byte frameLength) {
+  return SensorBase::CalculateCRC(data, frameLength - 1);
 }
 
 
-void WH1080::DecodeFrame(byte *bytes, struct Frame *frame, bool isWS4000) {
+byte WH1080::DecodeFrame(byte *bytes, struct Frame *frame) {
 	byte *sbuf = bytes;
   frame->IsValid = true;
+  frame->Header = (bytes[0] & 0xF0) >> 4;
+  frame->frameLength = (frame->Header == 0x5) ? LEN_WS3000 : FRAME_LENGTH; // default WS4000/WH1080
 
-  frame->CRC = bytes[9];
-  if (frame->CRC != CalculateCRC(bytes)) {
+  frame->CRC = bytes[frame->frameLength-1];
+  if (frame->CRC != CalculateCRC(bytes, frame->frameLength)) {
     frame->IsValid = false;
   }
-
+  if ((frame->Header != 0xA) && (frame->Header != 0x5)) {
+    frame->IsValid = false;
+  }
+  if (!frame->IsValid) {
+	  return 0;
+  }
     static char *compass[] = {"N  ", "NNE", "NE ", "ENE", "E  ", "ESE", "SE ", "SSE", "S  ", "SSW", "SW ", "WSW", "W  ", "WNW", "NW ", "NNW"};
     uint8_t windbearing = 0;
     byte status= 0;
@@ -98,7 +105,7 @@ void WH1080::DecodeFrame(byte *bytes, struct Frame *frame, bool isWS4000) {
     byte unknown = (sbuf[6] & 0xF0) >> 4;
     //rainfall
     double rain = (((sbuf[6] & 0x0F) << 8) | sbuf[7]) * 0.3;
-    if (isWS4000) {
+    if (frame->frameLength == FRAME_LENGTH) {
       status = (sbuf[8] & 0xF0) >> 4;
       //wind bearing
       windbearing = sbuf[8] & 0x0F;
@@ -106,10 +113,6 @@ void WH1080::DecodeFrame(byte *bytes, struct Frame *frame, bool isWS4000) {
 
   frame->ID = stationid;
 
-  frame->Header = (bytes[0] & 0xF0) >> 4;
-  if (frame->Header != 0x0A) {
-    frame->IsValid = false;
-  }
 
   frame->Temperature = temperature;
 
@@ -122,6 +125,7 @@ void WH1080::DecodeFrame(byte *bytes, struct Frame *frame, bool isWS4000) {
   frame->Rain = rain;
   frame->Status = status;
   frame->WindBearing = compass[windbearing];
+  return frame->frameLength;
 }
 
 void printDigits(int digits){
@@ -135,7 +139,7 @@ int BCD2bin(uint8_t BCD) {
   return (10 * (BCD >> 4 & 0xF) + (BCD & 0xF));
 }
 
-void printDouble( double val, byte precision=1){
+void printDouble( double val, byte precision){
   // formats val with number of decimal places determine by precision
   // precision is a number from 0 to 6 indicating the desired decimial places
  char ascii[10];
@@ -165,7 +169,7 @@ void printDouble( double val, byte precision=1){
   Serial.print(ascii);
 }
 
-void timestamp(bool fLong=false)
+static void timestamp(bool fLong=false)
 {
 	if (fLong) {
 	  Serial.print(year());
@@ -183,7 +187,7 @@ void timestamp(bool fLong=false)
   Serial.print(" ");
 }
 
-void update_time(uint8_t* tbuf) {
+static void update_time(uint8_t* tbuf) {
   static unsigned long lastMillis;
   SensorBase::DisplayFrame(lastMillis, "WH1080Time", true, tbuf, WH1080::FRAME_LENGTH);
   Serial.print(' ');
@@ -254,7 +258,7 @@ String WH1080::GetFhemDataString(struct Frame *frame) {
   return pBuf;
 }
 
-bool WH1080::DisplayFrame(byte *data,  byte packetCount, struct Frame *frame, bool fOnlyIfValid) {
+byte WH1080::DisplayFrame(byte *data,  byte packetCount, struct Frame *frame, bool fOnlyIfValid) {
   bool hideIt = false;
 
   if (!hideIt && fOnlyIfValid && !frame->IsValid) {
@@ -312,45 +316,50 @@ bool WH1080::DisplayFrame(byte *data,  byte packetCount, struct Frame *frame, bo
 
     Serial.println();
   }
-  return !hideIt;
+  return (!hideIt) ? frame->frameLength : 0;
 }
 
 void WH1080::AnalyzeFrame(byte *data, byte packetCount, bool fOnlyIfValid) {
   struct Frame frame;
-  bool fOk;
+  byte frameLength;
   DecodeFrame(data, &frame);
-  fOk = DisplayFrame(data, packetCount, &frame, fOnlyIfValid);
+  frameLength = DisplayFrame(data, packetCount, &frame, fOnlyIfValid);
 }
 
-bool WH1080::TryHandleData(byte *data, byte packetCount, bool fFhemDisplay) {
+byte WH1080::TryHandleData(byte *data, byte packetCount, bool fFhemDisplay) {
   bool fWs4000;
   bool fTimePacket;
+  byte frameLength = 0;
   byte startNibble = (data[0] & 0xF0)>>4;
 
 	switch(startNibble) {
 	case 0x5: // WS3000 weather
 		fWs4000 = false;
 		fTimePacket = false;
+		frameLength = LEN_WS3000;
 		break;
 	case 0x6: // WS3000 time
 		fWs4000 = false;
 		fTimePacket = true;
+		frameLength = LEN_WS3000;
 		break;
 	case 0xA: //WS4000 WH1080 weather
 		fWs4000 = true;
 		fTimePacket = false;
+		frameLength = LEN_WS4000;
 		break;
 	case 0xB: //WS4000 WH1080 time
 		fWs4000 = true;
 		fTimePacket = true;
+		frameLength = LEN_WS4000;
 		break;
 	default:
-		return false;
+		return frameLength;
 	}
 
   if (!fTimePacket) {
     struct Frame frame;
-    DecodeFrame(data, &frame, fWs4000);
+    DecodeFrame(data, &frame);
     if (frame.IsValid) {
 	  if (fFhemDisplay) {
           String fhemString = "";
@@ -358,17 +367,17 @@ bool WH1080::TryHandleData(byte *data, byte packetCount, bool fFhemDisplay) {
           if (fhemString.length() > 0) {
             Serial.println(fhemString);
           }
-          return fhemString.length() > 0;
+          return (fhemString.length() > 0) ? frameLength : 0;
   	     }
   	     else {
 		     return DisplayFrame(data, packetCount, &frame);
 	     }
     }
   }
-  else if (CalculateCRC(data) == data[9]) {
+  else if (CalculateCRC(data) == data[frameLength - 1]) {
 	  update_time(data);
-	  return true;
+	  return frameLength;
   }
-  return false;
+  return 0;
 }
 

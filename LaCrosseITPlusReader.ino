@@ -11,8 +11,8 @@
 
 //// http://forum.fhem.de/index.php/topic,14786.msg268544.html#msg268544
 
-#define PROGNAME         "LaCrosseITPlusReader"
-#define PROGVERS         "10.1h"
+#define PROGNAME         "LaCrosseWh1080ITPlusReader"
+#define PROGVERS         "00.1h"
 
 #include "RFMxx.h"
 #include "SensorBase.h"
@@ -38,7 +38,8 @@ bool fFhemDisplay           = false;                // set to false for text dis
 // The following settings can also be set from FHEM
 bool    DEBUG               = 0;                    // set to 1 to see debug messages
 unsigned long DATA_RATE     = 17241ul;              // use one of the possible data rates
-uint16_t TOGGLE_DATA_RATE   = 0;                    // 0=no toggle, else interval in seconds
+uint16_t TOGGLE_DATA_RATE   = 30;                    // 0=no toggle, else interval in seconds
+unsigned long lastWh1080 = 0;						// 48 seconds so try 60 seconds first...
 unsigned long INITIAL_FREQ  = 868300;               // Initial frequency in kHz (5 kHz steps, 860480 ... 879515)
 bool RELAY                  = 0;                    // If 1 all received packets will be retransmitted
 
@@ -219,7 +220,12 @@ void HandleCommandV() {
   Serial.print(")");
 
   Serial.print(" @");
-  if (TOGGLE_DATA_RATE) {
+  if (TOGGLE_DATA_RATE == 30) {
+    Serial.print("AutoToggleWH1080 ");
+    Serial.print(TOGGLE_DATA_RATE);
+    Serial.print(" Seconds");
+  }
+  else if (TOGGLE_DATA_RATE) {
     Serial.print("AutoToggle ");
     Serial.print(TOGGLE_DATA_RATE);
     Serial.print(" Seconds");
@@ -251,18 +257,24 @@ void loop(void) {
     if (millis() < lastToggle) {
       lastToggle = 0;
     }
-
     if (millis() > lastToggle + TOGGLE_DATA_RATE * 1000) {
-      if (DATA_RATE == 9579ul) {
-        DATA_RATE = 17241ul;
-      }
-      else {
-        DATA_RATE = 9579ul;
-      }
+		if ((TOGGLE_DATA_RATE == 30) && (DATA_RATE == 17241ul) && (millis() > (lastWh1080 + 5 * TOGGLE_DATA_RATE * 1000))) {
+			// WH1080 48 seconds interval so try another 30 seconds
+			lastWh1080 = millis();
+			Serial.println("Skip toggle for WH1080");
+			HandleCommandV();
+		}
+		else {
+		  if (DATA_RATE == 9579ul) {
+			DATA_RATE = 17241ul;
+		  }
+		  else {
+			DATA_RATE = 9579ul;
+		  }
 
-      rfm.SetDataRate(DATA_RATE);
+		  rfm.SetDataRate(DATA_RATE);
+	  }
       lastToggle = millis();
-
     }
   }
 
@@ -276,20 +288,10 @@ void loop(void) {
   // Handle the data reception
   // -------------------------
   if (RECEIVER_ENABLED) {
-#if 0
-    rfm.Receive();
-
-    if (rfm.PayloadIsReady()) {
-      rfm.EnableReceiver(false);
-
-      byte payload[PAYLOADSIZE];
-      byte payLoadSize = rfm.GetPayload(payload);
-#else
       byte payload[PAYLOADSIZE];
       byte payLoadSize;
       byte packetCount;
       if (rfm.ReceiveGetPayloadWhenReady(payload, payLoadSize, packetCount)) {
-#endif
 		byte startNibble = (payload[0] & 0xF0)>>4;
       if(ANALYZE_FRAMES) {
         LaCrosse::AnalyzeFrame(payload, fOnlyIfValid);
@@ -350,18 +352,24 @@ void loop(void) {
         else if (TX38IT::TryHandleData(payload, fFhemDisplay)) {
           frameLength = TX38IT::FRAME_LENGTH;
         }
-        else if (packetCount > 1) {
+        else if (packetCount > 1) { // Try WH1080 with frameLength 9 or 10
 			switch(startNibble) {
 			case 0x5: // WS3000 weather
 			case 0x6: // WS3000 time
 			case 0xA: //WS4000 WH1080 weather
 			case 0xB: //WS4000 WH1080 time
 				frameLength = WH1080::TryHandleData(payload, packetCount, fFhemDisplay);
+				if (frameLength > 0) {
+					lastWh1080 = millis();
+					if (TOGGLE_DATA_RATE == 30) { // WH1080 48 seconds interval so switch now
+						lastToggle = lastWh1080 - TOGGLE_DATA_RATE * 1000;
+					}
+				}
 				break;
 			}
 			//frameLength = 0;
 		}
-		else if (startNibble = 0xA) { // try ws1600
+		else if (startNibble = 0xA) { // try ws1600 with variable framelength
 #if 0
 				static unsigned long lastMillis;
 				byte datasets = payload[1] & 0x0F; // 2bytes, 4 nibbles
@@ -407,14 +415,10 @@ void loop(void) {
           rfm.SendArray(payload, frameLength);
           if (DEBUG) { Serial.println("Relayed"); }
         }
-
-
-
       }
       rfm.EnableReceiver(true);
     }
   }
-
 }
 
 
@@ -446,9 +450,3 @@ void setup(void) {
   HandleCommandV();
 
 }
-
-
-
-
-
-

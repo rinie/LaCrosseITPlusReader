@@ -2,7 +2,8 @@
 #define _RFMXX_h
 
 #include "Arduino.h"
-
+#define USE_SPI_H
+#define USE_TIME_H
 #define PAYLOADSIZE 64
 #define IsRF69 m_radioType == RFM69CW
 
@@ -14,8 +15,12 @@ public:
     RFM69CW = 2
   };
 
+#ifndef USE_SPI_H
   RFMxx(byte mosi, byte miso, byte sck, byte ss, byte irq);
-
+#else
+  RFMxx(byte ss=SS, byte irqPin=2); // jeelink en moteino irq 0 / irqPin =2
+#endif
+  void init();
   bool PayloadIsReady();
   byte GetPayload(byte *data);
   void InitialzeLaCrosse();
@@ -36,15 +41,22 @@ public:
   bool ReceiveGetPayloadWhenReady(byte *data, byte &length, byte &packetCount);
 private:
   RadioType m_radioType;
+#ifndef USE_SPI_H
   byte m_mosi, m_miso, m_sck, m_ss, m_irq;
+#else
+  byte m_ss, m_irqPin;
+#endif
   bool m_debug;
   unsigned long m_dataRate;
   unsigned long m_frequency;
   byte m_payloadPointer;
   unsigned long m_lastReceiveTime;
   bool m_payloadReady;
+  byte m_payload_min_size;
+  byte m_payload_max_size;
   byte m_payload_crc;
   byte m_payload[PAYLOADSIZE];
+
   byte spi8(byte);
   unsigned short spi16(unsigned short value);
   byte ReadReg(byte addr);

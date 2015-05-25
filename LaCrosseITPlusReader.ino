@@ -16,6 +16,12 @@
 
 #include "RFMxx.h"
 #include "SensorBase.h"
+#ifdef USE_TIME_H
+#include <Time.h>
+#endif
+#ifdef USE_SPI_H
+#include <SPI.h>
+#endif
 #include "LaCrosse.h"
 #include "LevelSenderLib.h"
 #include "EMT7110.h"
@@ -23,7 +29,6 @@
 #include "TX38IT.h"
 #include "WH1080.h"
 #include "WS1600.h"
-#include <Time.h>
 #include "JeeLink.h"
 #include "Transmitter.h"
 #include "Help.h"
@@ -37,9 +42,15 @@ bool fFhemDisplay           = false;                // set to false for text dis
 #define USE_OLD_IDS           0                     // Set to 1 to use the old ID calcualtion
 // The following settings can also be set from FHEM
 bool    DEBUG               = 0;                    // set to 1 to see debug messages
-unsigned long DATA_RATE     = 17241ul;              // use one of the possible data rates
+
+typedef enum drDataRate {dataRateFast=17241, dataRateSlow=9579, dataRateWs1600 = 8621} drDataRate;
+
+unsigned long DATA_RATE     = (unsigned long)dataRateFast;              // use one of the possible data rates
 uint16_t TOGGLE_DATA_RATE   = 30;                    // 0=no toggle, else interval in seconds
 unsigned long lastWh1080 = 0;						// 48 seconds so try 60 seconds first...
+bool fForceToggle = false;
+#define WH1080_MIN_PACKET_COUNT 1					// 6 repeated packages but need to tune clear fifo...
+#define WH1080_MIN_PACKET_COUNT 0
 unsigned long INITIAL_FREQ  = 868300;               // Initial frequency in kHz (5 kHz steps, 860480 ... 879515)
 bool RELAY                  = 0;                    // If 1 all received packets will be retransmitted
 
@@ -48,7 +59,11 @@ bool RELAY                  = 0;                    // If 1 all received packets
 unsigned long lastToggle = 0;
 byte commandData[32];
 byte commandDataPointer = 0;
+#ifndef USE_SPI_H
 RFMxx rfm(11, 12, 13, 10, 2);
+#else
+RFMxx rfm(SS, 2);
+#endif
 JeeLink jeeLink;
 Transmitter transmitter(&rfm);
 
@@ -79,7 +94,18 @@ static void HandleSerialPort(char c) {
       break;
     case 'r':
       // Data rate
-      DATA_RATE = value ? 9579ul : 17241ul;
+      switch (value) {
+		  case 0:
+		  	DATA_RATE = (unsigned long)dataRateFast;
+		  	break;
+		  case 1:
+		  	DATA_RATE = (unsigned long)dataRateFast;
+		  	break;
+		  case 2:
+		  	DATA_RATE = (unsigned long)dataRateWs1600;
+		  	break;
+	  }
+      //DATA_RATE = value ? 9579ul : 17241ul;
       rfm.SetDataRate(DATA_RATE);
       break;
     case 't':
@@ -157,7 +183,7 @@ void HandleCommandI(byte *values, byte size){
                               values[1] * 100,
                               true,
                               values[2] * 60000 + millis(),
-                              values[3] == 0 ? 17241ul : 9579ul);
+                              values[3] == 2 ? dataRateWs1600 : (values[3] == 0 ? dataRateFast : dataRateSlow));
     transmitter.Enable(true);
   }
   else if (size == 1 && values[0] == 0){
@@ -223,17 +249,17 @@ void HandleCommandV() {
   if (TOGGLE_DATA_RATE == 30) {
     Serial.print("AutoToggleWH1080 ");
     Serial.print(TOGGLE_DATA_RATE);
-    Serial.print(" Seconds");
+    Serial.print(" Seconds ");
   }
   else if (TOGGLE_DATA_RATE) {
     Serial.print("AutoToggle ");
     Serial.print(TOGGLE_DATA_RATE);
-    Serial.print(" Seconds");
+    Serial.print(" Seconds ");
   }
-  else {
+//  else {
     Serial.print(DATA_RATE);
     Serial.print(" kbps");
-  }
+//  }
 
   Serial.print(" / ");
   Serial.print(rfm.GetFrequency());
@@ -257,22 +283,26 @@ void loop(void) {
     if (millis() < lastToggle) {
       lastToggle = 0;
     }
-    if (millis() > lastToggle + TOGGLE_DATA_RATE * 1000) {
-		if ((TOGGLE_DATA_RATE == 30) && (DATA_RATE == 17241ul) && (millis() > (lastWh1080 + 5 * TOGGLE_DATA_RATE * 1000))) {
+    if (fForceToggle || (millis() > lastToggle + TOGGLE_DATA_RATE * 1000)) {
+		if (!fForceToggle && ((TOGGLE_DATA_RATE == 30) && (DATA_RATE == (unsigned long)dataRateFast) && (millis() > (lastWh1080 + 5 * TOGGLE_DATA_RATE * 1000)))) {
 			// WH1080 48 seconds interval so try another 30 seconds
 			lastWh1080 = millis();
 			Serial.println("Skip toggle for WH1080");
 			HandleCommandV();
 		}
 		else {
-		  if (DATA_RATE == 9579ul) {
-			DATA_RATE = 17241ul;
+		  fForceToggle = false;
+		  if (DATA_RATE == (unsigned long)dataRateWs1600) {
+			DATA_RATE = (unsigned long)dataRateFast;
 		  }
 		  else {
-			DATA_RATE = 9579ul;
+			DATA_RATE = (unsigned long)dataRateWs1600;
 		  }
 
 		  rfm.SetDataRate(DATA_RATE);
+		  if (TOGGLE_DATA_RATE == 30) {
+  		  	HandleCommandV();
+		  }
 	  }
       lastToggle = millis();
     }
@@ -302,12 +332,12 @@ void loop(void) {
         case 0x5: // WS3000 weather
         case 0x6: // WS3000 time
         case 0xA: //WS4000 WH1080 weather
-			if (packetCount <= 1) {
+			if ((packetCount <= 1) || (DATA_RATE != dataRateFast)) {
 				WS1600::AnalyzeFrame(payload, fOnlyIfValid);
 				break;
 			}
         case 0xB: //WS4000 WH1080 time
-			if (packetCount > 1) {
+			if ((packetCount > WH1080_MIN_PACKET_COUNT) || (DATA_RATE == dataRateFast)) {
 				WH1080::AnalyzeFrame(payload, packetCount, fOnlyIfValid);
 			}
 			break;
@@ -352,7 +382,7 @@ void loop(void) {
         else if (TX38IT::TryHandleData(payload, fFhemDisplay)) {
           frameLength = TX38IT::FRAME_LENGTH;
         }
-        else if (packetCount > 1) { // Try WH1080 with frameLength 9 or 10
+        else if ((DATA_RATE == dataRateFast) && (packetCount > WH1080_MIN_PACKET_COUNT)) { // Try WH1080 with frameLength 9 or 10
 			switch(startNibble) {
 			case 0x5: // WS3000 weather
 			case 0x6: // WS3000 time
@@ -362,7 +392,7 @@ void loop(void) {
 				if (frameLength > 0) {
 					lastWh1080 = millis();
 					if (TOGGLE_DATA_RATE == 30) { // WH1080 48 seconds interval so switch now
-						lastToggle = lastWh1080 - TOGGLE_DATA_RATE * 1000;
+						fForceToggle = true;
 					}
 				}
 				break;
@@ -436,6 +466,9 @@ void setup(void) {
   jeeLink.EnableLED(ENABLE_ACTIVITY_LED);
   lastToggle = millis();
 
+#ifdef USE_SPI_H
+	rfm.init(); // enable use of Serial.print...
+#endif
   rfm.InitialzeLaCrosse();
   rfm.SetFrequency(INITIAL_FREQ);
   rfm.SetDataRate(DATA_RATE);

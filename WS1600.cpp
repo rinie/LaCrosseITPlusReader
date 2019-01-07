@@ -82,10 +82,10 @@ byte WS1600::DecodeFrame(byte *bytes, struct WS1600::Frame *frame) {
 		switch (sensorType) { // e.g. a 5a 5 0 628 1 033 2 000 3 e00 4 000 bd
 			case 0:	//  0: temperature, 3 nibbles bcd coded tenth of °c plus 400 (here 628-400 = 22.8°C)
 				temp = BCD2bin(sbuf[j] & 0x0F) * 10 + BCD2bin((sbuf[j + 1] & 0xF0)>>4);
-				temp = temp - 40;
+				temp = temp;
 				tempDeci = BCD2bin((sbuf[j + 1] & 0x0F));
 				frame->SensorType[i] = sensors[sensorType];
-			    frame->Temperature = temp + tempDeci / 10;
+			    frame->Temperature = ((temp * 10 + tempDeci) - 400) / 10;
 				break;
 			case 1: // 1: humidity, 3 nibbles bcd coded (here 33 %rH), meaning of 1st nibble still unclear
 				humidity = BCD2bin(sbuf[j + 1]);

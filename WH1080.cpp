@@ -1,5 +1,9 @@
 #include "WH1080.h"
+#if ARDUINO >= 100
+#include <TimeLib.h>
+#else
 #include <Time.h>
+#endif
 /// FSK weather station receiver
 /// Receive packets echoes to serial.
 /// Updates DCF77 time.

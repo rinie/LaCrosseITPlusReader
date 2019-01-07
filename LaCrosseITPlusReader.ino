@@ -12,7 +12,7 @@
 //// http://forum.fhem.de/index.php/topic,14786.msg268544.html#msg268544
 
 #define PROGNAME         "LaCrosseWh1080ITPlusReader"
-#define PROGVERS         "00.1h"
+#define PROGVERS         "00.2h"
 
 #include "RFMxx.h"
 #include "SensorBase.h"
@@ -59,10 +59,36 @@ bool RELAY                  = 0;                    // If 1 all received packets
 unsigned long lastToggle = 0;
 byte commandData[32];
 byte commandDataPointer = 0;
+#ifndef USE_SX127x
 #ifndef USE_SPI_H
 RFMxx rfm(11, 12, 13, 10, 2);
 #else
 RFMxx rfm(SS, 2);
+#endif
+#else
+#include "SSD1306.h" // alias for `#include "SSD1306Wire.h"`
+SSD1306 display(0x3c, 4, 15);
+//OLED pins to ESP32 GPIOs via this connection:
+//OLED_SDA — GPIO4
+//OLED_SCL — GPIO15
+//OLED_RST — GPIO16
+
+
+
+// WIFI_LoRa_32 ports
+
+// GPIO5 — SX1278’s SCK
+// GPIO19 — SX1278’s MISO
+// GPIO27 — SX1278’s MOSI
+// GPIO18 — SX1278’s CS
+// GPIO14 — SX1278’s RESET
+// GPIO26 — SX1278’s IRQ(Interrupt Request)
+
+#define SS 18
+#define RST 14
+#define DI0 26
+RFMxx rfm(SS, DI0, RST); // need RST?
+
 #endif
 JeeLink jeeLink;
 Transmitter transmitter(&rfm);
@@ -421,7 +447,7 @@ void loop(void) {
 		if (frameLength == 0) {
 			// MilliSeconds and the raw data bytes
 			static unsigned long lastMillis;
-			SensorBase::DisplayFrame(lastMillis, "Unknown", false, payload, (payLoadSize > 16) ? 16 : payLoadSize);
+			SensorBase::DisplayFrame(lastMillis, "Unknown", false, payload, (payLoadSize > 16) ? 18 : payLoadSize);
 
 			Serial.print(" Size:");
 			Serial.print(payLoadSize);
@@ -438,7 +464,15 @@ void loop(void) {
 
           Serial.println();
 		}
-
+#ifdef USE_SX127x
+		{
+			  char s[80];
+			  sprintf(s, "%2X Size:%d #:%d", payload[0], payLoadSize, packetCount);
+			  Serial.println(s);
+			  display.drawString(5,25,s);
+			  display.display();
+		}
+#endif
 
         if (RELAY && frameLength > 0) {
           delay(64);
@@ -453,8 +487,29 @@ void loop(void) {
 
 
 void setup(void) {
+#ifdef USE_SX127x
+  pinMode(16,OUTPUT);
+  digitalWrite(16, LOW); // set GPIO16 low to reset OLED
+  delay(50);
+  digitalWrite(16, HIGH);
+
+  display.init();
+  display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_10);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+
+  Serial.begin(57600);
+  while (!Serial); //if just the the basic function, must connect to a computer
+  delay(1000);
+
+  Serial.print(F("\r\n[LaCrosseITPlusReader sx1278 433 57600]\r\n"));
+  Serial.println("LaCrosseITPlusReader sx1278 Receiver");
+  display.drawString(5,5,"LaCrosseITPlusReader");
+  display.display();
+#else
   Serial.begin(57600);
   delay(200);
+#endif
   if (DEBUG) {
     Serial.println("*** LaCrosse weather station wireless receiver for IT+ sensors ***");
   }

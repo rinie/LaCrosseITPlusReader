@@ -16,9 +16,7 @@
 
 #include "RFMxx.h"
 #include "SensorBase.h"
-#ifdef USE_TIME_H
-#include <Time.h>
-#endif
+#include <TimeLib.h>
 #ifdef USE_SPI_H
 #include <SPI.h>
 #endif

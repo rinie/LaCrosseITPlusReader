@@ -5,7 +5,7 @@
 #define USE_SPI_H
 #define USE_TIME_H
 #ifdef ESP32
-#define USE_SX127x
+    #define USE_SX127x
 #endif
 
 #define PAYLOADSIZE 64

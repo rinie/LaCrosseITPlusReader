@@ -17,7 +17,7 @@
 #include "RFMxx.h"
 #include "SensorBase.h"
 #ifdef USE_TIME_H
-#include <Time.h>
+#include "TimeLib.h"
 #endif
 #ifdef USE_SPI_H
 #include <SPI.h>
@@ -51,7 +51,7 @@ unsigned long lastWh1080 = 0;						// 48 seconds so try 60 seconds first...
 bool fForceToggle = false;
 #define WH1080_MIN_PACKET_COUNT 1					// 6 repeated packages but need to tune clear fifo...
 #define WH1080_MIN_PACKET_COUNT 0
-unsigned long INITIAL_FREQ  = 868300;               // Initial frequency in kHz (5 kHz steps, 860480 ... 879515)
+unsigned long INITIAL_FREQ  = 915000; //868300;      // Initial frequency in kHz (5 kHz steps, 860480 ... 879515)
 bool RELAY                  = 0;                    // If 1 all received packets will be retransmitted
 
 
@@ -60,34 +60,55 @@ unsigned long lastToggle = 0;
 byte commandData[32];
 byte commandDataPointer = 0;
 #ifndef USE_SX127x
-#ifndef USE_SPI_H
-RFMxx rfm(11, 12, 13, 10, 2);
+    #ifndef USE_SPI_H
+        RFMxx rfm(11, 12, 13, 10, 2);
+    #else
+        RFMxx rfm(SS, 2);
+    #endif
+
 #else
-RFMxx rfm(SS, 2);
-#endif
-#else
-#include "SSD1306.h" // alias for `#include "SSD1306Wire.h"`
-SSD1306 display(0x3c, 4, 15);
-//OLED pins to ESP32 GPIOs via this connection:
-//OLED_SDA — GPIO4
-//OLED_SCL — GPIO15
-//OLED_RST — GPIO16
+    #include "SSD1306.h" // alias for `#include "SSD1306Wire.h"`
+
+    #ifdef HELTEC
+        // WIFI_LoRa_32 ports
+
+        // GPIO5 — SX1278’s SCK
+        // GPIO19 — SX1278’s MISO
+        // GPIO27 — SX1278’s MOSI
+        // GPIO18 — SX1278’s CS
+        // GPIO14 — SX1278’s RESET
+        // GPIO26 — SX1278’s IRQ(Interrupt Request)
+
+        #define SS 18
+        #define RST 14
+        #define DI0 26
+
+        //OLED pins to ESP32 GPIOs via this connection:
+        #define OLED_SDA 4
+        #define OLED_SCL 15
+        #define OLED_RST 16
+        SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
+    #else
+        // WIFI_LoRa_32 ports
+        // GPIO5 — SX1278’s SCK
+        // GPIO19 — SX1278’s MISO
+        // GPIO27 — SX1278’s MOSI
+        // GPIO18 — SX1278’s CS
+        // GPIO14 — SX1278’s RESET
+        // GPIO26 — SX1278’s IRQ(Interrupt Request)
+        #define SS 18
+        #define RST 23
+        #define DI0 26
+        //TTGO OLED pins to ESP32 GPIOs via this connection:
+        #define OLED_SDA 21
+        #define OLED_SCL 22
+        #define OLED_RST xx
+        SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
+    #endif
 
 
 
-// WIFI_LoRa_32 ports
-
-// GPIO5 — SX1278’s SCK
-// GPIO19 — SX1278’s MISO
-// GPIO27 — SX1278’s MOSI
-// GPIO18 — SX1278’s CS
-// GPIO14 — SX1278’s RESET
-// GPIO26 — SX1278’s IRQ(Interrupt Request)
-
-#define SS 18
-#define RST 14
-#define DI0 26
-RFMxx rfm(SS, DI0, RST); // need RST?
+    RFMxx rfm(SS, DI0, RST); // need RST?
 
 #endif
 JeeLink jeeLink;
@@ -498,7 +519,7 @@ void setup(void) {
   display.setFont(ArialMT_Plain_10);
   display.setTextAlignment(TEXT_ALIGN_LEFT);
 
-  Serial.begin(57600);
+  Serial.begin(115200);
   while (!Serial); //if just the the basic function, must connect to a computer
   delay(1000);
 
